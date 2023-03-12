@@ -43,6 +43,7 @@ def end(game_state: typing.Dict):
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
 def move(game_state: typing.Dict) -> typing.Dict:
+    print(game_state)
 
     is_move_safe = {"up": True, "down": True, "left": True, "right": True}
 
@@ -62,12 +63,37 @@ def move(game_state: typing.Dict) -> typing.Dict:
     elif my_neck["y"] > my_head["y"]:  # Neck is above head, don't move up
         is_move_safe["up"] = False
 
-    # TODO: Step 1 - Prevent your Battlesnake from moving out of bounds
-    # board_width = game_state['board']['width']
-    # board_height = game_state['board']['height']
+    # Map border hard stops
+    board_width = game_state['board']['width'] -1
+    board_height = game_state['board']['height'] -1
+
+    if my_head["x"] <= 0:               # Left Border Hard Stop
+        is_move_safe["left"] = False
+
+    elif my_head["x"] >= board_width:   # Right Border Hard Stop
+        is_move_safe["right"] = False
+
+    if my_head["y"] <= 0:               # Bottom Border Hard Stop
+        is_move_safe["down"] = False
+
+    elif my_head["y"] >= board_height:  # Top Border Hard Stop
+        is_move_safe["up"] = False
+    
 
     # TODO: Step 2 - Prevent your Battlesnake from colliding with itself
-    # my_body = game_state['you']['body']
+    my_body = game_state['you']['body']
+
+    if {'x':my_head["x"] -1, 'y':my_head["y"]} in my_body:  
+        is_move_safe["left"] = False
+
+    if {'x':my_head["x"] +1, 'y':my_head["y"]} in my_body:  
+        is_move_safe["right"] = False
+
+    if {'y':my_head["y"] -1, 'x':my_head["x"]} in my_body:  
+        is_move_safe["down"] = False
+
+    if {'y':my_head["y"] +1, 'x':my_head["x"]} in my_body:  
+        is_move_safe["up"] = False
 
     # TODO: Step 3 - Prevent your Battlesnake from colliding with other Battlesnakes
     # opponents = game_state['board']['snakes']
