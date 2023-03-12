@@ -108,14 +108,32 @@ def move(game_state: typing.Dict) -> typing.Dict:
         print(f"MOVE {game_state['turn']}: No safe moves detected! Moving down")
         return {"move": "down"}
 
-    # Choose a random move from the safe ones
-    next_move = random.choice(safe_moves)
-
     # TODO: Step 4 - Move towards food instead of random, to regain health and survive longer
-    # food = game_state['board']['food']
 
-    print(f"MOVE {game_state['turn']}: {next_move}")
-    return {"move": next_move}
+    # Find all the food on the board
+    food_locations = game_state['board']['food']
+
+    # Find the closest food to the head of your snake
+    closest_food = None
+    closest_distance = float('inf')
+    for food in food_locations:
+        distance = abs(my_head['x'] - food['x']) + abs(my_head['y'] - food['y'])
+        if distance < closest_distance:
+            closest_distance = distance
+            closest_food = food
+
+    # Decide which direction to move based on the closest food
+    if closest_food['x'] < my_head['x'] and is_move_safe['left']:
+        return {"move": "left"}
+    elif closest_food['x'] > my_head['x'] and is_move_safe['right']:
+        return {"move": "right"}
+    elif closest_food['y'] < my_head['y'] and is_move_safe['down']:
+        return {"move": "down"}
+    elif closest_food['y'] > my_head['y'] and is_move_safe['up']:
+        return {"move": "up"}
+    else:
+        return {"move": random.choice(safe_moves)}
+
 
 
 # Start server when `python main.py` is run
