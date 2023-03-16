@@ -35,7 +35,7 @@ class DQN(nn.Module):
 
 # DQN settings
 input_size = 11 * 11  # Assuming an 11x11 board
-hidden_size = 64
+hidden_size = 4096
 output_size = 4  # Number of possible moves
 learning_rate = 0.001
 
@@ -57,13 +57,15 @@ epsilon = 1.0
 epsilon_decay = 0.995
 min_epsilon = 0.01
 memory = []
-max_memory_size = 1000
+max_memory_size = 1000000
 batch_size = 64
 
 # Global variable to store the previous state and action
 previous_state = None
 previous_action = None
 previous_game_state = {}
+
+high_score = 0
 
 
 import numpy as np
@@ -187,10 +189,16 @@ def start(game_state: typing.Dict):
 
 # end is called when your Battlesnake finishes a game
 def end(game_state: typing.Dict):
+    global high_score
     # Add the final state to the memory
     memory.append((preprocess_game_state(game_state), -1, None, previous_action))
     # Perform experience replay
     experience_replay()
+
+    # Update the high score
+    current_score = game_state["you"]["length"]
+    high_score = max(high_score, current_score)
+    print(f"Score: {current_score}, High Score: {high_score}")
 
     print("GAME OVER\n")
 
@@ -203,6 +211,8 @@ def end(game_state: typing.Dict):
 # See https://docs.battlesnake.com/api/example-move for available data
 def move(game_state: typing.Dict) -> typing.Dict:
     global previous_state, previous_action, previous_game_state
+
+    safe_moves = get_safe_moves(game_state)
 
     # Use the DQN to select the next action
     input_tensor = preprocess_game_state(game_state)
@@ -223,10 +233,14 @@ def move(game_state: typing.Dict) -> typing.Dict:
         previous_health = previous_game_state["you"]["health"]
         current_length = game_state["you"]["length"]
         previous_length = previous_game_state["you"]["length"]
-        if current_length < previous_length:
-            reward = 1
-        elif current_health == 0:
+        if current_length > 5 and current_length < 10:
+            reward = 5
+        if not len(safe_moves):
             reward = -100
+        elif current_health == 0:
+            reward = -50
+        elif current_length <= 1:
+            reward = -50
         else:
             reward = -1
 
@@ -245,7 +259,6 @@ def move(game_state: typing.Dict) -> typing.Dict:
     print(f"Selected move: {selected_move} ({exploration_status})")
 
     # Check if the selected move is safe. If not, choose a random safe move.
-    safe_moves = get_safe_moves(game_state)
     if selected_move not in safe_moves:
         selected_move = random.choice(safe_moves)
 
