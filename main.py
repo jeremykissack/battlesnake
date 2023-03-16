@@ -13,6 +13,154 @@
 import random
 import typing
 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+import numpy as np
+
+import os
+
+class DQN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(DQN, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+
+# DQN settings
+input_size = 11 * 11  # Assuming an 11x11 board
+hidden_size = 64
+output_size = 4  # Number of possible moves
+learning_rate = 0.001
+
+# Initialize the DQN
+dqn = DQN(input_size, hidden_size, output_size)
+
+# Load the saved model, if available
+model_path = "model.pth"
+if os.path.exists(model_path):
+    dqn.load_state_dict(torch.load(model_path))
+
+
+optimizer = optim.Adam(dqn.parameters(), lr=learning_rate)
+criterion = nn.MSELoss()
+
+# Other Deep Q-Learning settings
+gamma = 0.99
+epsilon = 1.0
+epsilon_decay = 0.995
+min_epsilon = 0.01
+memory = []
+max_memory_size = 1000
+batch_size = 64
+
+# Global variable to store the previous state and action
+previous_state = None
+previous_action = None
+previous_game_state = {}
+
+
+import numpy as np
+
+def preprocess_game_state(game_state):
+    # Preprocess game_state and convert it into a tensor
+    board_width = game_state["board"]["width"]
+    board_height = game_state["board"]["height"]
+    board = np.zeros((board_height, board_width), dtype=int)
+
+    # Fill in the game board with information from the game state (e.g., snake positions, food)
+    # Mark food with 1
+    for food in game_state["board"]["food"]:
+        board[food["y"]][food["x"]] = 1
+
+    # Mark snake body segments with -1
+    for snake in game_state["board"]["snakes"]:
+        for segment in snake["body"]:
+            board[segment["y"]][segment["x"]] = -1
+
+    # Mark our snake's head with 2
+    our_head = game_state["you"]["head"]
+    board[our_head["y"]][our_head["x"]] = 2
+
+    # Flatten the board and convert it to a tensor
+    input_tensor = torch.tensor(board.flatten(), dtype=torch.float32).unsqueeze(0)
+    return input_tensor
+
+
+
+def update_q_values(batch):
+    states, rewards, next_states, actions = zip(*batch)
+
+    states = torch.cat(states)
+    non_terminal_next_states = torch.cat([s for s in next_states if s is not None])
+
+    q_values = dqn(states)
+    target_q_values = q_values.clone().detach()  # Create a tensor with the same shape as q_values
+
+    non_terminal_next_q_values = dqn(non_terminal_next_states).max(1)[0].detach()
+
+    non_terminal_idx = 0
+    for i, (reward, next_state, action) in enumerate(zip(rewards, next_states, actions)):
+        if next_state is not None:
+            target_q_values[i, action] = reward + gamma * non_terminal_next_q_values[non_terminal_idx]
+            non_terminal_idx += 1
+        else:
+            target_q_values[i, action] = reward
+
+    loss = criterion(q_values, target_q_values)
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+
+def experience_replay():
+    # Perform experience replay and update Q-values
+    if len(memory) >= batch_size:
+        batch = random.sample(memory, batch_size)
+        update_q_values(batch)
+
+def is_in_bounds(x: int, y: int, board_width: int, board_height: int) -> bool:
+    return 0 <= x < board_width and 0 <= y < board_height
+
+def is_occupied(x: int, y: int, snakes: typing.List[typing.Dict]) -> bool:
+    for snake in snakes:
+        for segment in snake["body"]:
+            if segment["x"] == x and segment["y"] == y:
+                return True
+    return False
+
+def get_safe_moves(game_state: typing.Dict) -> typing.List[str]:
+    head = game_state["you"]["head"]
+    board_width = game_state["board"]["width"]
+    board_height = game_state["board"]["height"]
+    snakes = game_state["board"]["snakes"]
+
+    possible_moves = {
+        "up": {"x": head["x"], "y": head["y"] + 1},
+        "down": {"x": head["x"], "y": head["y"] - 1},
+        "left": {"x": head["x"] - 1, "y": head["y"]},
+        "right": {"x": head["x"] + 1, "y": head["y"]}
+    }
+
+    safe_moves = []
+    for move, new_position in possible_moves.items():
+        if is_in_bounds(new_position["x"], new_position["y"], board_width, board_height) and \
+                not is_occupied(new_position["x"], new_position["y"], snakes):
+            safe_moves.append(move)
+
+    # If safe_moves list is empty, add a default move (e.g., "up")
+    if not safe_moves:
+        safe_moves.append("up")
+
+    return safe_moves
+
+
 
 # info is called when you create your Battlesnake on play.battlesnake.com
 # and controls your Battlesnake's appearance
@@ -28,112 +176,77 @@ def info() -> typing.Dict:
         "tail": "default",  # TODO: Choose tail
     }
 
-
 # start is called when your Battlesnake begins a game
 def start(game_state: typing.Dict):
+    global epsilon
+    epsilon = max(epsilon * epsilon_decay, min_epsilon)
     print("GAME START")
-
 
 # end is called when your Battlesnake finishes a game
 def end(game_state: typing.Dict):
+    # Add the final state to the memory
+    memory.append((preprocess_game_state(game_state), -1, None, previous_action))
+    # Perform experience replay
+    experience_replay()
+
     print("GAME OVER\n")
+
+    # After N games or in the end() function
+    torch.save(dqn.state_dict(), "model.pth")
 
 
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
 def move(game_state: typing.Dict) -> typing.Dict:
-    print(game_state)
+    global previous_state, previous_action, previous_game_state
 
-    is_move_safe = {"up": True, "down": True, "left": True, "right": True}
+    # Use the DQN to select the next action
+    input_tensor = preprocess_game_state(game_state)
+    q_values = dqn(input_tensor)
+    action = torch.argmax(q_values).item()
 
-    # We've included code to prevent your Battlesnake from moving backwards
-    my_head = game_state["you"]["body"][0]  # Coordinates of your head
-    my_neck = game_state["you"]["body"][1]  # Coordinates of your "neck"
+    # Exploration: choose a random action with probability epsilon
+    if random.random() < epsilon:
+        action = random.randint(0, 3)
 
-    if my_neck["x"] < my_head["x"]:  # Neck is left of head, don't move left
-        is_move_safe["left"] = False
+    # If we have a previous state, store the experience in memory
+    if previous_state is not None:
+        # Compute the reward based on game state
+        current_health = game_state["you"]["health"]
+        previous_health = previous_game_state["you"]["health"]
+        if current_health < previous_health:
+            reward = 1
+        elif current_health == 0:
+            reward = -100
+        else:
+            reward = -1
 
-    elif my_neck["x"] > my_head["x"]:  # Neck is right of head, don't move right
-        is_move_safe["right"] = False
+        memory.append((previous_state, reward, input_tensor, action))  # Store the action index
 
-    elif my_neck["y"] < my_head["y"]:  # Neck is below head, don't move down
-        is_move_safe["down"] = False
+        # Make sure memory doesn't exceed max_memory_size
+        if len(memory) > max_memory_size:
+            memory.pop(0)
 
-    elif my_neck["y"] > my_head["y"]:  # Neck is above head, don't move up
-        is_move_safe["up"] = False
+    # Update Q-values during training
+    experience_replay()
 
-    # Map border hard stops
-    board_width = game_state['board']['width'] -1
-    board_height = game_state['board']['height'] -1
+    # Convert the selected action to a move
+    move_mapping = {0: "up", 1: "down", 2: "left", 3: "right"}
+    selected_move = move_mapping[action]
 
-    if my_head["x"] <= 0:               # Left Border Hard Stop
-        is_move_safe["left"] = False
+    # Check if the selected move is safe. If not, choose a random safe move.
+    safe_moves = get_safe_moves(game_state)
+    if selected_move not in safe_moves:
+        selected_move = random.choice(safe_moves)
 
-    elif my_head["x"] >= board_width:   # Right Border Hard Stop
-        is_move_safe["right"] = False
+    # Update the previous state and action
+    previous_state = input_tensor
+    previous_action = action
 
-    if my_head["y"] <= 0:               # Bottom Border Hard Stop
-        is_move_safe["down"] = False
+    previous_game_state = game_state
 
-    elif my_head["y"] >= board_height:  # Top Border Hard Stop
-        is_move_safe["up"] = False
-    
-
-    # TODO: Step 2 - Prevent your Battlesnake from colliding with itself
-    my_body = game_state['you']['body']
-
-    if {'x':my_head["x"] -1, 'y':my_head["y"]} in my_body:  
-        is_move_safe["left"] = False
-
-    if {'x':my_head["x"] +1, 'y':my_head["y"]} in my_body:  
-        is_move_safe["right"] = False
-
-    if {'y':my_head["y"] -1, 'x':my_head["x"]} in my_body:  
-        is_move_safe["down"] = False
-
-    if {'y':my_head["y"] +1, 'x':my_head["x"]} in my_body:  
-        is_move_safe["up"] = False
-
-    # TODO: Step 3 - Prevent your Battlesnake from colliding with other Battlesnakes
-    # opponents = game_state['board']['snakes']
-
-    # Are there any safe moves left?
-    safe_moves = []
-    for move, isSafe in is_move_safe.items():
-        if isSafe:
-            safe_moves.append(move)
-
-    if len(safe_moves) == 0:
-        print(f"MOVE {game_state['turn']}: No safe moves detected! Moving down")
-        return {"move": "down"}
-
-    # TODO: Step 4 - Move towards food instead of random, to regain health and survive longer
-
-    # Find all the food on the board
-    food_locations = game_state['board']['food']
-
-    # Find the closest food to the head of your snake
-    closest_food = None
-    closest_distance = float('inf')
-    for food in food_locations:
-        distance = abs(my_head['x'] - food['x']) + abs(my_head['y'] - food['y'])
-        if distance < closest_distance:
-            closest_distance = distance
-            closest_food = food
-
-    # Decide which direction to move based on the closest food
-    if closest_food['x'] < my_head['x'] and is_move_safe['left']:
-        return {"move": "left"}
-    elif closest_food['x'] > my_head['x'] and is_move_safe['right']:
-        return {"move": "right"}
-    elif closest_food['y'] < my_head['y'] and is_move_safe['down']:
-        return {"move": "down"}
-    elif closest_food['y'] > my_head['y'] and is_move_safe['up']:
-        return {"move": "up"}
-    else:
-        return {"move": random.choice(safe_moves)}
-
+    return {"move": selected_move}
 
 
 # Start server when `python main.py` is run
