@@ -70,23 +70,23 @@ import numpy as np
 
 def preprocess_game_state(game_state):
     # Preprocess game_state and convert it into a tensor
-    board_width = game_state["board"]["width"]
+    board_width = game_state["board"]["width"] 
     board_height = game_state["board"]["height"]
     board = np.zeros((board_height, board_width), dtype=int)
 
     # Fill in the game board with information from the game state (e.g., snake positions, food)
     # Mark food with 1
     for food in game_state["board"]["food"]:
-        board[food["y"]][food["x"]] = 1
+        board[food["y"] - 1][food["x"] - 1] = 1
 
     # Mark snake body segments with -1
     for snake in game_state["board"]["snakes"]:
         for segment in snake["body"]:
-            board[segment["y"]][segment["x"]] = -1
+            board[segment["y"] - 1][segment["x"] - 1] = -1
 
     # Mark our snake's head with 2
     our_head = game_state["you"]["head"]
-    board[our_head["y"]][our_head["x"]] = 2
+    board[our_head["y"] - 1][our_head["x"] - 1] = 2
 
     # Flatten the board and convert it to a tensor
     input_tensor = torch.tensor(board.flatten(), dtype=torch.float32).unsqueeze(0)
@@ -200,6 +200,8 @@ def end(game_state: typing.Dict):
 # See https://docs.battlesnake.com/api/example-move for available data
 def move(game_state: typing.Dict) -> typing.Dict:
     global previous_state, previous_action, previous_game_state
+
+    print(f"Epsilon: {epsilon}")
 
     # Use the DQN to select the next action
     input_tensor = preprocess_game_state(game_state)
