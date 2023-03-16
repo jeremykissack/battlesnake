@@ -114,6 +114,7 @@ def update_q_values(batch):
             target_q_values[i, action] = reward
 
     loss = criterion(q_values, target_q_values)
+    print("Loss:", loss.item())
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
@@ -181,6 +182,8 @@ def start(game_state: typing.Dict):
     global epsilon
     epsilon = max(epsilon * epsilon_decay, min_epsilon)
     print("GAME START")
+    print(f"Epsilon: {epsilon}")
+
 
 # end is called when your Battlesnake finishes a game
 def end(game_state: typing.Dict):
@@ -201,8 +204,6 @@ def end(game_state: typing.Dict):
 def move(game_state: typing.Dict) -> typing.Dict:
     global previous_state, previous_action, previous_game_state
 
-    print(f"Epsilon: {epsilon}")
-
     # Use the DQN to select the next action
     input_tensor = preprocess_game_state(game_state)
     q_values = dqn(input_tensor)
@@ -211,13 +212,18 @@ def move(game_state: typing.Dict) -> typing.Dict:
     # Exploration: choose a random action with probability epsilon
     if random.random() < epsilon:
         action = random.randint(0, 3)
+        exploration_status = "Exploration"
+    else:
+        exploration_status = "Exploitation"
 
     # If we have a previous state, store the experience in memory
     if previous_state is not None:
         # Compute the reward based on game state
         current_health = game_state["you"]["health"]
         previous_health = previous_game_state["you"]["health"]
-        if current_health < previous_health:
+        current_length = game_state["you"]["length"]
+        previous_length = previous_game_state["you"]["length"]
+        if current_length < previous_length:
             reward = 1
         elif current_health == 0:
             reward = -100
@@ -236,6 +242,7 @@ def move(game_state: typing.Dict) -> typing.Dict:
     # Convert the selected action to a move
     move_mapping = {0: "up", 1: "down", 2: "left", 3: "right"}
     selected_move = move_mapping[action]
+    print(f"Selected move: {selected_move} ({exploration_status})")
 
     # Check if the selected move is safe. If not, choose a random safe move.
     safe_moves = get_safe_moves(game_state)
